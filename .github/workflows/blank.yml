@@ -2,8 +2,11 @@ name: Build mimalloc secure
 
 on:
   schedule:
-    - cron: '0 6 * * *' 
+    - cron: '0 6 * * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   check-and-build:
@@ -24,8 +27,8 @@ jobs:
       - name: Get last built version
         id: current
         run: |
-          CURRENT=$(curl -fsSL https://api.github.com/repos/${{ github.repository }}/releases/latest \
-            | jq -r '.tag_name // "none"')
+          CURRENT=$(curl -fsSL "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            2>/dev/null | jq -r '.tag_name // "none"' 2>/dev/null || echo "none")
           echo "version=$CURRENT" >> $GITHUB_OUTPUT
           echo "Last built: $CURRENT"
 
@@ -83,18 +86,5 @@ jobs:
           - Ubuntu latest runner (x86_64)
 
           Source: https://github.com/microsoft/mimalloc/releases/tag/$VERSION
-
-          ## Usage
-          \`\`\`bash
-          # Descargar
-          curl -LO https://github.com/\${{ github.repository }}/releases/download/$VERSION/libmimalloc-secure.so.2
-
-          # Preload global
-          sudo cp libmimalloc-secure.so.2 /usr/local/lib/
-          sudo ldconfig
-          echo '/usr/local/lib/libmimalloc-secure.so.2' | sudo tee /etc/ld.so.preload
-          \`\`\`
           " \
-            /tmp/artifacts/libmimalloc-secure.so* \
-            /tmp/artifacts/libmimalloc.so* \
-            2>/dev/null || true
+            /tmp/artifacts/libmimalloc-secure.so*
