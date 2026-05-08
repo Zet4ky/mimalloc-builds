@@ -2,8 +2,8 @@ name: Build mimalloc secure
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # cada día a las 06:00 UTC
-  workflow_dispatch:      # permite lanzarlo manualmente también
+    - cron: '0 6 * * *' 
+  workflow_dispatch:
 
 jobs:
   check-and-build:
