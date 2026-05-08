@@ -1,0 +1,100 @@
+name: Build mimalloc secure
+
+on:
+  schedule:
+    - cron: '0 6 * * *'  # cada día a las 06:00 UTC
+  workflow_dispatch:      # permite lanzarlo manualmente también
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest mimalloc release
+        id: upstream
+        run: |
+          LATEST=$(curl -fsSL https://api.github.com/repos/microsoft/mimalloc/releases/latest \
+            | jq -r '.tag_name')
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+          echo "Latest mimalloc: $LATEST"
+
+      - name: Get last built version
+        id: current
+        run: |
+          CURRENT=$(curl -fsSL https://api.github.com/repos/${{ github.repository }}/releases/latest \
+            | jq -r '.tag_name // "none"')
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Last built: $CURRENT"
+
+      - name: Skip if already up to date
+        if: steps.upstream.outputs.version == steps.current.outputs.version
+        run: |
+          echo "Already up to date (${{ steps.upstream.outputs.version }}), skipping."
+          exit 0
+
+      - name: Install build dependencies
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cmake gcc g++ make
+
+      - name: Clone mimalloc
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        run: |
+          git clone --depth=1 --branch ${{ steps.upstream.outputs.version }} \
+            https://github.com/microsoft/mimalloc.git /tmp/mimalloc
+
+      - name: Build (secure mode)
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        run: |
+          cd /tmp/mimalloc
+          mkdir -p out/secure && cd out/secure
+          cmake \
+            -DMI_SECURE=ON \
+            -DMI_BUILD_SHARED=ON \
+            -DMI_BUILD_STATIC=OFF \
+            -DCMAKE_BUILD_TYPE=Release \
+            ../..
+          make -j"$(nproc)"
+
+          # Recopilar artefactos
+          mkdir -p /tmp/artifacts
+          cp libmimalloc-secure.so* /tmp/artifacts/ 2>/dev/null || true
+          cp libmimalloc.so* /tmp/artifacts/ 2>/dev/null || true
+          ls -la /tmp/artifacts/
+
+      - name: Create release
+        if: steps.upstream.outputs.version != steps.current.outputs.version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.upstream.outputs.version }}
+
+          gh release create "$VERSION" \
+            --title "mimalloc $VERSION (secure build)" \
+            --notes "Automated secure build of mimalloc $VERSION.
+
+          Built with:
+          - \`-DMI_SECURE=ON\` (guard pages + encrypted free lists)
+          - \`-DCMAKE_BUILD_TYPE=Release\`
+          - Ubuntu latest runner (x86_64)
+
+          Source: https://github.com/microsoft/mimalloc/releases/tag/$VERSION
+
+          ## Usage
+          \`\`\`bash
+          # Descargar
+          curl -LO https://github.com/\${{ github.repository }}/releases/download/$VERSION/libmimalloc-secure.so.2
+
+          # Preload global
+          sudo cp libmimalloc-secure.so.2 /usr/local/lib/
+          sudo ldconfig
+          echo '/usr/local/lib/libmimalloc-secure.so.2' | sudo tee /etc/ld.so.preload
+          \`\`\`
+          " \
+            /tmp/artifacts/libmimalloc-secure.so* \
+            /tmp/artifacts/libmimalloc.so* \
+            2>/dev/null || true
